@@ -6,6 +6,12 @@
 #include <ETH.h>
 
 static bool eth_connected = false;
+WiFiClient client;
+
+#define packTimeout 5 // ms (if nothing more on UART, then send packet)
+#define BUFFERSIZE 1024
+uint8_t *buf;
+uint16_t bufCount=0;
 
 void WiFiEvent(WiFiEvent_t event)
 {
@@ -44,24 +50,44 @@ void WiFiEvent(WiFiEvent_t event)
   }
 }
 
-void testClient(const char * host, uint16_t port)
+void Client_Bridge(const char * host, uint16_t port)
 {
-  Serial.print("\nconnecting to ");
-  Serial.println(host);
-
-  WiFiClient client;
-  if (!client.connect(host, port)) {
-    Serial.println("connection failed");
-    return;
+  while (!client.connected())
+  {
+        if (!client.connect(host, port))
+        {
+            Serial.println("connection....");
+            delay(200);
+        }
   }
-  client.printf("GET / HTTP/1.1\r\nHost: %s\r\n\r\n", host);
-  while (client.connected() && !client.available());
-  while (client.available()) {
-    Serial.write(client.read());
+  if(client.available()) {
+    while(client.available()) {
+      buf[bufCount] = (uint8_t)client.read(); // read char from client (RoboRemo app)
+      if(bufCount < BUFFERSIZE-1) bufCount++;
+    }
+    // now send to UART:
+    Serial.write(buf, bufCount);
+    bufCount = 0;
   }
 
-  Serial.println("closing connection\n");
-  client.stop();
+  if(Serial.available()) {
+
+    // read the data until pause:
+    while(1) {
+      if(Serial.available()) {
+        buf[bufCount] = (char)Serial.read(); // read char from UART
+        if(bufCount < BUFFERSIZE-1) bufCount++;
+      } else {
+        delay(packTimeout);
+        if(!Serial.available()) {
+          break;
+        }
+      }
+    }
+    // now send to WiFi:
+    client.write((char*)buf, bufCount);
+    bufCount = 0;
+  }
 }
 
 void setup()
@@ -69,13 +95,14 @@ void setup()
   Serial.begin(115200);
   WiFi.onEvent(WiFiEvent);
   ETH.begin();
+  buf = (uint8_t *)malloc(BUFFERSIZE);
 }
 
 
 void loop()
 {
   if (eth_connected) {
-    testClient("google.com", 80);
+    Client_Bridge("emake.space", 1878);
   }
-  delay(10000);
+  delay(20);
 }
