@@ -71,11 +71,11 @@ void Client_Bridge(const char * host, uint16_t port)
   if(client.available()) {
     while(client.available()) {
       buf[bufCount] = (uint8_t)client.read(); // read char from client (RoboRemo app)
-      if(bufCount < BUFFERSIZE-1) bufCount++;
+      if(bufCount < BUFFERSIZE - 1) bufCount++;
     }
     // now send to UART:
-    Serial.write(buf, bufCount);
-    SerialBT.write(buf, bufCount);
+    Serial.write((const uint8_t*)buf, bufCount);
+    SerialBT.write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 
@@ -84,7 +84,7 @@ void Client_Bridge(const char * host, uint16_t port)
     while(1) {
       if(Serial.available()) {
         buf[bufCount] = (char)Serial.read(); // read char from UART
-        if(bufCount < BUFFERSIZE-1) bufCount++;
+        if(bufCount < BUFFERSIZE - 1) bufCount++;
       } else {
         delay(packTimeout);
         if(!Serial.available()) {
@@ -93,7 +93,8 @@ void Client_Bridge(const char * host, uint16_t port)
       }
     }
     // now send to WiFi:
-    client.write((char*)buf, bufCount);
+    client.write((const uint8_t*)buf, bufCount);
+    SerialBT.write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
   if(SerialBT.available()) {
@@ -101,7 +102,7 @@ void Client_Bridge(const char * host, uint16_t port)
     while(1) {
       if(SerialBT.available()) {
         buf[bufCount] = (char)SerialBT.read(); // read char from BT
-        if(bufCount < BUFFERSIZE-1) bufCount++;
+        if(bufCount < BUFFERSIZE - 1) bufCount++;
       } else {
         delay(packTimeout);
         if(!SerialBT.available()) {
@@ -110,7 +111,8 @@ void Client_Bridge(const char * host, uint16_t port)
       }
     }
     // now send to WiFi:
-    client.write((char*)buf, bufCount);
+    client.write((const uint8_t*)buf, bufCount);
+    Serial.write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 }
@@ -119,7 +121,7 @@ void setup()
 {
   Serial.begin(115200);
   SerialBT.begin("NetGate"); //Bluetooth device name
-  Serial.println("The device started, now you can pair it with bluetooth!");
+  Serial.println("The device started, now you can pair it with bluetooth!\r\n\r\n");
   WiFi.onEvent(WiFiEvent);
   ETH.begin();
   buf = (uint8_t *)malloc(BUFFERSIZE);

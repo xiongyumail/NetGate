@@ -56,7 +56,7 @@ _This is a project which show how to connect esp32 and Qt by ethernet and blueto
   ```
   ./build-NetGate-Desktop-Debug/NetGate
   ```  
-  Slect your port allow board to connect.(You can modify your ip and port `in esp32/main.cpp`)
+  Slect your port allow board to connect.(You can modify your ip and port in `esp32/main.cpp`)
 
 ### Build and Flash
 
