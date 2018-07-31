@@ -5,14 +5,6 @@
 
 #include <ETH.h>
 
-#include "BluetoothSerial.h"
-
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
-
-BluetoothSerial SerialBT;
-
 static bool eth_connected = false;
 WiFiClient client;
 
@@ -27,7 +19,7 @@ void WiFiEvent(WiFiEvent_t event)
     case SYSTEM_EVENT_ETH_START:
       Serial.println("ETH Started");
       //set eth hostname here
-      ETH.setHostname("esp32-ethernet");
+      ETH.setHostname("ULT");
       break;
     case SYSTEM_EVENT_ETH_CONNECTED:
       Serial.println("ETH Connected");
@@ -75,7 +67,6 @@ void Client_Bridge(const char * host, uint16_t port)
     }
     // now send to UART:
     Serial.write((const uint8_t*)buf, bufCount);
-    SerialBT.write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 
@@ -94,25 +85,6 @@ void Client_Bridge(const char * host, uint16_t port)
     }
     // now send to WiFi:
     client.write((const uint8_t*)buf, bufCount);
-    SerialBT.write((const uint8_t*)buf, bufCount);
-    bufCount = 0;
-  }
-  if(SerialBT.available()) {
-    // read the data until pause:
-    while(1) {
-      if(SerialBT.available()) {
-        buf[bufCount] = (char)SerialBT.read(); // read char from BT
-        if(bufCount < BUFFERSIZE - 1) bufCount++;
-      } else {
-        delay(packTimeout);
-        if(!SerialBT.available()) {
-          break;
-        }
-      }
-    }
-    // now send to WiFi:
-    client.write((const uint8_t*)buf, bufCount);
-    Serial.write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 }
@@ -120,7 +92,6 @@ void Client_Bridge(const char * host, uint16_t port)
 void setup()
 {
   Serial.begin(115200);
-  SerialBT.begin("NetGate"); //Bluetooth device name
   Serial.println("The device started, now you can pair it with bluetooth!\r\n\r\n");
   WiFi.onEvent(WiFiEvent);
   delay(100); // delay for ethernet start up.
