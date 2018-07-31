@@ -123,6 +123,7 @@ void setup()
   SerialBT.begin("NetGate"); //Bluetooth device name
   Serial.println("The device started, now you can pair it with bluetooth!\r\n\r\n");
   WiFi.onEvent(WiFiEvent);
+  delay(100); // delay for ethernet start up.
   ETH.begin();
   buf = (uint8_t *)malloc(BUFFERSIZE);
 }
