@@ -75,14 +75,19 @@ void wifi_init_sta()
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
 }
 
-void app_main() 
+void ETH_Task(void *pvParameter)
 {
   ESP_LOGI(TAG,"NetGate\n");
   tcpip_adapter_init();
-
-  while(1) {
-    eth_install(event_handler, NULL);
+  eth_install(event_handler, NULL);
+  while(1)
+  {
     vTaskDelay(20000 / portTICK_RATE_MS);
-    eth_free();
   }
+  
+}
+
+void app_main() 
+{
+ xTaskCreate(&ETH_Task, "ETH_Task", 2048, NULL, 5, NULL);
 }
