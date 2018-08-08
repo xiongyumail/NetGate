@@ -3,7 +3,15 @@
 
 */
 
+#include <Arduino.h>
 #include <ETH.h>
+#include <SPI.h>
+
+static const int spiClk = 10000000; // 10 MHz
+
+//uninitalised pointers to SPI objects
+SPIClass * hspi = NULL;
+
 
 static bool eth_connected = false;
 WiFiClient client;
@@ -50,6 +58,16 @@ void WiFiEvent(WiFiEvent_t event)
   }
 }
 
+void hspi_write(const uint8_t *data,uint16_t len) {
+  hspi->beginTransaction(SPISettings(spiClk, MSBFIRST, SPI_MODE0));
+  for (uint16_t i = 0; i < len; i++) {
+    digitalWrite(15, LOW);
+    hspi->transfer(data[i]);
+    digitalWrite(15, HIGH);
+  }
+  hspi->endTransaction();
+}
+
 void Client_Bridge(const char * host, uint16_t port)
 {
   while (!client.connected())
@@ -67,6 +85,7 @@ void Client_Bridge(const char * host, uint16_t port)
     }
     // now send to UART:
     Serial.write((const uint8_t*)buf, bufCount);
+    hspi_write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 
@@ -85,9 +104,11 @@ void Client_Bridge(const char * host, uint16_t port)
     }
     // now send to WiFi:
     client.write((const uint8_t*)buf, bufCount);
+    hspi_write((const uint8_t*)buf, bufCount);
     bufCount = 0;
   }
 }
+
 
 void setup()
 {
@@ -97,13 +118,28 @@ void setup()
   delay(100); // delay for ethernet start up.
   ETH.begin();
   buf = (uint8_t *)malloc(BUFFERSIZE);
+
+  //initialise two instances of the SPIClass attached to VSPI and HSPI respectively
+  hspi = new SPIClass(HSPI);
+  
+  //clock miso mosi ss
+  //initialise hspi with default pins
+  //SCLK = 14, MISO = 12, MOSI = 13, SS = 15
+  hspi->begin(); 
+  //alternatively route through GPIO pins
+  //hspi->begin(25, 26, 27, 32); //SCLK, MISO, MOSI, SS
+
+  //set up slave select pins as outputs as the Arduino API
+  //doesn't handle automatically pulling SS low
+  pinMode(15, OUTPUT); //HSPI SS
 }
 
 
 void loop()
 {
   if (eth_connected) {
-    Client_Bridge("emake.space", 1878);
+    Client_Bridge("192.168.0.100", 1878);
   }
   delay(20);
 }
+
