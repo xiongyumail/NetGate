@@ -17,6 +17,8 @@
 #include "eth.h"
 #include "driver/uart.h"
 
+#include "fifo.h"
+
 #define EXAMPLE_ESP_WIFI_MODE_AP   CONFIG_ESP_WIFI_MODE_AP //TRUE:AP FALSE:STA
 #define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
@@ -26,12 +28,8 @@
 #define RECV_BUF_SIZE 1024
 #define SEND_BUF_SIZE 1024
 
-QueueHandle_t tcp_send_queue;
-QueueHandle_t uart_send_queue;
-typedef struct {
-  uint8_t *data;
-  uint32_t len;
-} buf_t;
+fifo_handle_t tcp_send_fifo;
+fifo_handle_t uart_send_fifo;
 
 static const char *TAG = "main";
 
@@ -119,38 +117,6 @@ void wifi_init_sta()
     ESP_LOGI(TAG, "wifi_init_sta finished.");
     ESP_LOGI(TAG, "connect to ap SSID:%s password:%s",
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
-}
-
-buf_t *buf_send(uint8_t *data, uint32_t len)
-{
-    buf_t *buf = (buf_t *)malloc(sizeof(buf_t));
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "alloc failed, reset chip...");
-        esp_restart();
-    }
-    buf->data = (uint8_t *)malloc(sizeof(uint8_t)*len);
-    if (buf->data == NULL) {
-        ESP_LOGE(TAG, "alloc failed, reset chip...");
-        esp_restart();
-    }
-    memcpy(buf->data, data, len);
-    buf->len = len;
-
-    return buf;
-}
-
-uint32_t buf_recv(buf_t *buf, uint8_t *data)
-{
-    if (NULL == buf || NULL == data) {
-      return 0;
-    }
-    uint32_t len;
-    memcpy(data, buf->data, buf->len);
-    len = buf->len;
-    free(buf->data);
-    free(buf);
-
-    return len;
 }
 
 static void tcp_client_task(void *pvParameter)
@@ -253,9 +219,8 @@ static void tcp_client_task(void *pvParameter)
                 int recv_ret = recv(sockfd, recv_buf, RECV_BUF_SIZE, 0);
 
                 if (recv_ret > 0) {
-                    //do more chores
-                    buf_t *send_buf = buf_send((uint8_t *)recv_buf, (uint32_t)recv_ret);
-                    xQueueSendToBack( tcp_send_queue, &send_buf, 0); 
+                    //do more chores 
+                    fifo_send(&tcp_send_fifo, (uint8_t *)recv_buf, recv_ret);
                 } else {
                     ESP_LOGW(TAG, "close tcp transmit, would close socket...");
                     break;
@@ -266,11 +231,8 @@ static void tcp_client_task(void *pvParameter)
                 // writable
 
                 // send client data to tcp server
-                buf_t *recv_buf = NULL;
-                xQueueReceive( uart_send_queue, &recv_buf, 0);
-                if (NULL != recv_buf) {
-                  uint32_t len = buf_recv(recv_buf, (uint8_t *)send_buf);
-        
+                int len = fifo_recv(&uart_send_fifo, (uint8_t *)send_buf);
+                if (len) {
                   int send_ret = send(sockfd, send_buf, len, 0);
                   if (send_ret == -1) {
                       ESP_LOGE(TAG, "send data to tcp server failed");
@@ -323,14 +285,11 @@ static void uart_task()
         // Read data from the UART
         int len = uart_read_bytes(UART_NUM_0, data, BUF_SIZE, 20 / portTICK_RATE_MS);
         if (len) {
-            buf_t *send_buf = buf_send((uint8_t *)data, (uint32_t)len);
-            xQueueSendToBack( uart_send_queue, &send_buf, 0); 
+            fifo_send(&uart_send_fifo, data, len);
         }
         // Write data to the UART
-        buf_t *recv_buf = NULL;
-        xQueueReceive( tcp_send_queue, &recv_buf, 0);
-        if (NULL != recv_buf) {
-          uint32_t len = buf_recv(recv_buf, data);
+        len = fifo_recv(&tcp_send_fifo, data);
+        if (len) {
           uart_write_bytes(UART_NUM_0, (const char *) data, len);
         }
     }
@@ -342,8 +301,6 @@ void app_main()
     net_event_group = xEventGroupCreate();
     eth_install(event_handler, NULL);
 
-    tcp_send_queue = xQueueCreate(100, sizeof(buf_t *));
-    uart_send_queue = xQueueCreate(100, sizeof(buf_t *));
     xTaskCreate(&uart_task, "uart_task", 2048, NULL, 5, NULL);
     xTaskCreate(&tcp_client_task, "tcp_client_task", 4096, NULL, 5, NULL);
 
