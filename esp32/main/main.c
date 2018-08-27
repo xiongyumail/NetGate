@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/ringbuf.h"
 
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -17,8 +18,6 @@
 #include "eth.h"
 #include "driver/uart.h"
 
-#include "fifo.h"
-
 #define EXAMPLE_ESP_WIFI_MODE_AP   CONFIG_ESP_WIFI_MODE_AP //TRUE:AP FALSE:STA
 #define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
@@ -26,10 +25,14 @@
 #define SERVER_IP "192.168.0.101"
 #define SERVER_PORT 8000
 #define RECV_BUF_SIZE 1024
-#define SEND_BUF_SIZE 1024
 
-fifo_handle_t tcp_send_fifo;
-fifo_handle_t uart_send_fifo;
+typedef struct {
+  uint8_t *data;
+  int len;
+} buf_t;
+
+RingbufHandle_t tcp_ring_buf;
+RingbufHandle_t uart_ring_buf;
 
 static const char *TAG = "main";
 
@@ -183,10 +186,10 @@ static void tcp_client_task(void *pvParameter)
         timeout.tv_sec = 3;
         timeout.tv_usec = 0;
 
-        char *send_buf = (char *)calloc(SEND_BUF_SIZE, 1);
-        char *recv_buf = (char *)calloc(SEND_BUF_SIZE, 1);
+        char *send_buf = NULL;
+        char *recv_buf = (char *)calloc(RECV_BUF_SIZE, 1);
 
-        if (send_buf == NULL || recv_buf == NULL) {
+        if (recv_buf == NULL) {
             ESP_LOGE(TAG, "alloc failed, reset chip...");
             esp_restart();
         }
@@ -219,8 +222,11 @@ static void tcp_client_task(void *pvParameter)
                 int recv_ret = recv(sockfd, recv_buf, RECV_BUF_SIZE, 0);
 
                 if (recv_ret > 0) {
-                    //do more chores 
-                    fifo_send(&tcp_send_fifo, (uint8_t *)recv_buf, recv_ret);
+                    //do more chores
+                    BaseType_t res = xRingbufferSend(tcp_ring_buf, recv_buf, recv_ret, 20 / portTICK_RATE_MS);
+                    if(res != pdTRUE) {
+                        ESP_LOGE(TAG, "%d RingbufferSend error",recv_ret); 
+                    }
                 } else {
                     ESP_LOGW(TAG, "close tcp transmit, would close socket...");
                     break;
@@ -229,18 +235,26 @@ static void tcp_client_task(void *pvParameter)
 
             if (FD_ISSET(sockfd, &write_set)) {
                 // writable
-
+                size_t len;
                 // send client data to tcp server
-                int len = fifo_recv(&uart_send_fifo, (uint8_t *)send_buf);
-                if (len) {
-                  int send_ret = send(sockfd, send_buf, len, 0);
-                  if (send_ret == -1) {
-                      ESP_LOGE(TAG, "send data to tcp server failed");
-                      break;
-                  }
+                send_buf = (char *) xRingbufferReceive(uart_ring_buf, &len, 20 / portTICK_RATE_MS);
+                if (NULL != send_buf) {
+                    char *send_buf_offset = send_buf;
+                    while(len > 0) {
+                        int send_ret = send(sockfd, send_buf_offset, len, 0);
+                        if (send_ret == -1) {
+                            ESP_LOGE(TAG, "send data to tcp server failed");
+                            break;
+                        } else {
+                            send_buf_offset += send_ret;
+                            len -= send_ret;
+                        }
+                    } 
+                    vRingbufferReturnItem(uart_ring_buf, send_buf); 
+                    if (0 != len) {
+                        break;
+                    }             
                 }
-
-                vTaskDelay(1000 / portTICK_RATE_MS);
             }
         }
 
@@ -248,9 +262,6 @@ static void tcp_client_task(void *pvParameter)
             close(sockfd);
             ESP_LOGW(TAG, "close socket , sockfd:%d", sockfd);
         }
-
-        free(send_buf);
-        send_buf = NULL;
         free(recv_buf);
         recv_buf = NULL;
         ESP_LOGW(TAG, "reset tcp client and reconnect to tcp server...");
@@ -276,21 +287,33 @@ static void uart_task()
     };
     uart_param_config(UART_NUM_0, &uart_config);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, 0);
 
     // Configure a temporary buffer for the incoming data
-    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    uint8_t *recv_data = (uint8_t *) malloc(BUF_SIZE);
+    uint8_t *send_data = NULL;
+    size_t len;
+
+    if (recv_data == NULL) {
+        ESP_LOGE(TAG, "alloc failed, reset chip...");
+        esp_restart();
+    }
 
     while (1) {
         // Read data from the UART
-        int len = uart_read_bytes(UART_NUM_0, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        len = uart_read_bytes(UART_NUM_0, recv_data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        
         if (len) {
-            fifo_send(&uart_send_fifo, data, len);
+            BaseType_t res = xRingbufferSend(uart_ring_buf, recv_data, len, 20 / portTICK_RATE_MS);
+            if(res != pdTRUE) {
+                ESP_LOGE(TAG, "%d RingbufferSend error",len); 
+            }
         }
         // Write data to the UART
-        len = fifo_recv(&tcp_send_fifo, data);
-        if (len) {
-          uart_write_bytes(UART_NUM_0, (const char *) data, len);
+        send_data = (uint8_t *) xRingbufferReceive(tcp_ring_buf, &len, 20 / portTICK_RATE_MS);
+        if (NULL != send_data) {
+          uart_write_bytes(UART_NUM_0, (const char *)send_data, len);
+          vRingbufferReturnItem(tcp_ring_buf, send_data);
         }
     }
 }
@@ -301,6 +324,8 @@ void app_main()
     net_event_group = xEventGroupCreate();
     eth_install(event_handler, NULL);
 
+    tcp_ring_buf = xRingbufferCreate(1024, RINGBUF_TYPE_BYTEBUF);
+    uart_ring_buf = xRingbufferCreate(1024, RINGBUF_TYPE_BYTEBUF);
     xTaskCreate(&uart_task, "uart_task", 2048, NULL, 5, NULL);
     xTaskCreate(&tcp_client_task, "tcp_client_task", 4096, NULL, 5, NULL);
 
