@@ -7,7 +7,7 @@
 
 static const char *TAG = "spi_if";
 
-spi_if_handle_t spi_if_init(int sck, int miso, int mosi, int cs)
+spi_if_handle_t spi_if_init(int fre, int mode, int sck, int miso, int mosi, int cs)
 {
     esp_err_t ret;
     spi_if_handle_t spi = NULL;
@@ -20,8 +20,8 @@ spi_if_handle_t spi_if_init(int sck, int miso, int mosi, int cs)
         .max_transfer_sz=1024
     };
     spi_device_interface_config_t devcfg={
-        .clock_speed_hz=10*1000*1000,           //Clock out at 10 MHz
-        .mode=0,                                //SPI mode 0
+        .clock_speed_hz=fre,           
+        .mode=mode,                                   //SPI mode 0
         .spics_io_num=cs,               //CS pin
         .queue_size=7,                          //We want to be able to queue 7 transactions at a time
         // .pre_cb=lcd_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line

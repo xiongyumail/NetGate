@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #define spi_if_handle_t spi_device_handle_t
-spi_if_handle_t spi_if_init(int sck, int miso, int mosi, int cs);
+spi_if_handle_t spi_if_init(int fre, int mode, int sck, int miso, int mosi, int cs);
 
 esp_err_t spi_if_write(spi_if_handle_t spi, uint8_t *data, int len);
 

@@ -397,6 +397,7 @@ static void uart_task()
             if(-1 == fifo_send(uart_fifo_handle, recv_data, len, 20)) {
                 ESP_LOGE(TAG, "%d uart fifo Send error", len); 
             }
+            spi_if_write(spi_if_handle, recv_data, len);
         }
         // Write data to the UART
         fifo_buf_t *buf;
@@ -419,7 +420,7 @@ void app_main()
     ESP_ERROR_CHECK(ret);
     tcpip_adapter_init();
     net_event_group = xEventGroupCreate();
-    
+
     if (TCPIP_ADAPTER_IF_ETH == NET_INTERFACE) {
         eth_install(event_handler, NULL);
     } else {
@@ -432,7 +433,7 @@ void app_main()
 
     tcp_fifo_handle = fifo_create(100);
     uart_fifo_handle = fifo_create(100);
-    spi_if_handle = spi_if_init(-1, -1, -1, -1);
+    spi_if_handle = spi_if_init(10000000, 0, 14, 12, 13, 15);
     xTaskCreate(&uart_task, "uart_task", 2048, NULL, 5, NULL);
     xTaskCreate(&tcp_client_task, "tcp_client_task", 4096, NULL, 5, NULL);
 
