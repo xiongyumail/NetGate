@@ -24,7 +24,7 @@
 #define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
 
-#define SERVER_IP "192.168.31.164"
+#define SERVER_IP "192.168.0.101"
 #define SERVER_PORT 8000
 #define RECV_BUF_SIZE 1024
 
@@ -322,7 +322,7 @@ void app_main()
     tcpip_adapter_init();
     net_event_group = xEventGroupCreate();
     eth_install(event_handler, NULL);
-
+    eth_config("ESP32-GateWay", inet_addr("192.168.0.102"), inet_addr("192.168.0.1"), inet_addr("255.255.255.0"), inet_addr("192.168.0.1"), 0);
     tcp_fifo_handle = fifo_create(100);
     uart_fifo_handle = fifo_create(100);
     xTaskCreate(&uart_task, "uart_task", 2048, NULL, 5, NULL);
@@ -330,7 +330,7 @@ void app_main()
 
     // new more task to do other chores
     while (1) {
-        vTaskDelay(3000 / portTICK_RATE_MS);
+        vTaskDelay(1000 / portTICK_RATE_MS);
         ESP_LOGI(TAG, "current heap size:%d", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
   }
