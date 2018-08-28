@@ -1,37 +1,53 @@
-menu "Wifi Configuration"
+menu "NetGate Configuration"
 
-choice ESP_WIFI_MODE
-    prompt "AP or STA"
-    default ESP_WIFI_IS_STATION
+choice NET_MODE
+    prompt "ETH or WIFI"
+    default ETHERNET
     help
-        Whether the esp32 is softAP or station.
+        Choose Net mode is Ethernet or Wifi.
 
-config ESP_WIFI_IS_SOFTAP
-    bool "SoftAP"
-config ESP_WIFI_IS_STATION
-    bool "Station"
+config WIFI
+    bool "Wifi"
+config ETHERNET
+    bool "Ethernet"
 endchoice
 
-config ESP_WIFI_MODE_AP
-    bool
-    default y if ESP_WIFI_IS_SOFTAP
-    default n if ESP_WIFI_IS_STATION
+choice WIFI_MODE
+    prompt "WIFI_STATION or WIFI_SOFTAP"
+    default WIFI_STATION
+    depends on WIFI
+    help
+        Whether the esp32 is Station or Softap.
 
-config ESP_WIFI_SSID
+config WIFI_STATION
+    bool "Station"
+config WIFI_SOFTAP
+    bool "Softap"
+endchoice
+
+config WIFI_MODE_AP
+    bool
+    default y if WIFI_SOFTAP
+    default n if WIFI_STATION
+
+config WIFI_SSID
     string "WiFi SSID"
     default "myssid"
+    depends on WIFI
     help
 	SSID (network name) for the example to connect to.
 
-config ESP_WIFI_PASSWORD
+config WIFI_PASSWORD
     string "WiFi Password"
     default "mypassword"
+    depends on WIFI
     help
 	WiFi password (WPA or WPA2) for the example to use.
 		
 config MAX_STA_CONN
     int "Max STA conn"
     default 4
+    depends on WIFI_STATION
     help
 	Max number of the STA connects to AP.
 endmenu

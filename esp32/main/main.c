@@ -20,9 +20,27 @@
 
 #include "fifo.h"
 
-#define EXAMPLE_ESP_WIFI_MODE_AP   CONFIG_ESP_WIFI_MODE_AP //TRUE:AP FALSE:STA
-#define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
-#define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
+#include "lwip/dns.h"
+
+#include "spi_if.h"
+
+#ifdef CONFIG_ETHERNET
+#define NET_INTERFACE  TCPIP_ADAPTER_IF_ETH
+#elif  CONFIG_WIFI
+
+#ifdef CONFIG_WIFI_STATION
+#define NET_INTERFACE  TCPIP_ADAPTER_IF_STA
+#elif  CONFIG_WIFI_AP
+#define NET_INTERFACE  TCPIP_ADAPTER_IF_AP
+#endif
+
+#define WIFI_MODE_AP   CONFIG_WIFI_MODE_AP //TRUE:AP FALSE:STA
+#define WIFI_SSID      CONFIG_WIFI_SSID
+#define WIFI_PASS      CONFIG_WIFI_PASSWORD
+#endif
+
+
+
 
 #define SERVER_IP "192.168.0.101"
 #define SERVER_PORT 8000
@@ -35,6 +53,10 @@ typedef struct {
 
 fifo_handle_t tcp_fifo_handle;
 fifo_handle_t uart_fifo_handle;
+
+spi_if_handle_t spi_if_handle;
+
+bool static_ip;
 
 static const char *TAG = "main";
 
@@ -54,8 +76,14 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
             break;
 
         case SYSTEM_EVENT_STA_GOT_IP:
+            xEventGroupSetBits(net_event_group, CONNECTED_BIT);
             ESP_LOGI(TAG, "got ip:%s",
                      ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
+            break;
+
+        case SYSTEM_EVENT_STA_DISCONNECTED:
+            xEventGroupClearBits(net_event_group, CONNECTED_BIT);
+            esp_wifi_connect();
             break;
 
         case SYSTEM_EVENT_AP_STACONNECTED:
@@ -65,13 +93,10 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
             break;
 
         case SYSTEM_EVENT_AP_STADISCONNECTED:
+            xEventGroupClearBits(net_event_group, CONNECTED_BIT);
             ESP_LOGI(TAG, "station:"MACSTR"leave, AID=%d",
                      MAC2STR(event->event_info.sta_disconnected.mac),
                      event->event_info.sta_disconnected.aid);
-            break;
-
-        case SYSTEM_EVENT_STA_DISCONNECTED:
-            esp_wifi_connect();
             break;
 
         case SYSTEM_EVENT_ETH_START:
@@ -88,6 +113,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
             break;
 
         case SYSTEM_EVENT_ETH_DISCONNECTED:
+            xEventGroupClearBits(net_event_group, CONNECTED_BIT);
             ESP_LOGI(TAG, "ETH Disconnected");
             break;
 
@@ -101,8 +127,8 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 
     return ESP_OK;
 }
-
-void wifi_init_sta()
+#ifdef  CONFIG_WIFI
+static void wifi_init_sta()
 {
     ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL));
 
@@ -110,8 +136,8 @@ void wifi_init_sta()
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .password = EXAMPLE_ESP_WIFI_PASS
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS
         },
     };
 
@@ -121,7 +147,72 @@ void wifi_init_sta()
 
     ESP_LOGI(TAG, "wifi_init_sta finished.");
     ESP_LOGI(TAG, "connect to ap SSID:%s password:%s",
-             EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+             WIFI_SSID, WIFI_PASS);
+}
+#endif
+static esp_err_t net_config(tcpip_adapter_if_t interface, const char * hostname, uint32_t local_ip, uint32_t gateway, uint32_t subnet, uint32_t dns1, uint32_t dns2)
+{
+    esp_err_t err = ESP_OK;
+    tcpip_adapter_ip_info_t info;
+	
+    if (hostname != NULL) {
+        err = tcpip_adapter_set_hostname(interface, hostname);
+    } else {
+        err = tcpip_adapter_set_hostname(interface, "NetGate");
+    }
+    
+    if(err != ESP_OK){
+        ESP_LOGE(TAG,"hostname could not be seted! Error: %d", err);
+        return err;
+    }   
+    if(local_ip != (uint32_t)0x00000000){
+        info.ip.addr = local_ip;
+        info.gw.addr = gateway;
+        info.netmask.addr = subnet;
+    } else {
+        info.ip.addr = 0;
+        info.gw.addr = 0;
+        info.netmask.addr = 0;
+	}
+
+    err = tcpip_adapter_dhcpc_stop(interface);
+    if(err != ESP_OK && err != ESP_ERR_TCPIP_ADAPTER_DHCP_ALREADY_STOPPED){
+        ESP_LOGE(TAG,"DHCP could not be stopped! Error: %d", err);
+        return err;
+    }
+
+    err = tcpip_adapter_set_ip_info(interface, &info);
+    if(err != ESP_OK){
+        ESP_LOGE(TAG,"STA IP could not be configured! Error: %d", err);
+        return err;
+}
+    if(info.ip.addr){
+        static_ip = true;
+    } else {
+        err = tcpip_adapter_dhcpc_start(interface);
+        if(err != ESP_OK && err != ESP_ERR_TCPIP_ADAPTER_DHCP_ALREADY_STARTED){
+            ESP_LOGW(TAG,"DHCP could not be started! Error: %d", err);
+            return err;
+        }
+        static_ip = false;
+    }
+
+    ip_addr_t d;
+    d.type = IPADDR_TYPE_V4;
+
+    if(dns1 != (uint32_t)0x00000000) {
+        // Set DNS1-Server
+        d.u_addr.ip4.addr = dns1;
+        dns_setserver(0, &d);
+    }
+
+    if(dns2 != (uint32_t)0x00000000) {
+        // Set DNS2-Server
+        d.u_addr.ip4.addr = dns2;
+        dns_setserver(1, &d);
+    }
+
+    return ESP_OK;
 }
 
 static void tcp_client_task(void *pvParameter)
@@ -319,12 +410,29 @@ static void uart_task()
 
 void app_main()
 {
+    //Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
     tcpip_adapter_init();
     net_event_group = xEventGroupCreate();
-    eth_install(event_handler, NULL);
-    eth_config("ESP32-GateWay", inet_addr("192.168.0.102"), inet_addr("192.168.0.1"), inet_addr("255.255.255.0"), inet_addr("192.168.0.1"), 0);
+    
+    if (TCPIP_ADAPTER_IF_ETH == NET_INTERFACE) {
+        eth_install(event_handler, NULL);
+    } else {
+        #ifdef CONFIG_WIFI_STATION
+        wifi_init_sta();
+        #endif
+    }
+    
+    net_config(NET_INTERFACE, "ESP32-GateWay", inet_addr("192.168.0.102"), inet_addr("192.168.0.1"), inet_addr("255.255.255.0"), inet_addr("192.168.0.1"), 0);
+
     tcp_fifo_handle = fifo_create(100);
     uart_fifo_handle = fifo_create(100);
+    spi_if_handle = spi_if_init(-1, -1, -1, -1);
     xTaskCreate(&uart_task, "uart_task", 2048, NULL, 5, NULL);
     xTaskCreate(&tcp_client_task, "tcp_client_task", 4096, NULL, 5, NULL);
 
