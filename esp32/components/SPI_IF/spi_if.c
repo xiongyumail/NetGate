@@ -23,7 +23,7 @@ spi_if_handle_t spi_if_init(int fre, int mode, int sck, int miso, int mosi, int 
         .clock_speed_hz=fre,           
         .mode=mode,                                   //SPI mode 0
         .spics_io_num=cs,               //CS pin
-        .queue_size=7,                          //We want to be able to queue 7 transactions at a time
+         .queue_size=1,                          //We want to be able to queue 7 transactions at a time
         // .pre_cb=lcd_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
     };
     //Initialize the SPI bus

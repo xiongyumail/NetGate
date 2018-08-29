@@ -11,6 +11,7 @@
 #include "esp_wifi.h"
 #include "esp_event_loop.h"
 #include "esp_log.h"
+#include "esp_spi_flash.h"
 
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -23,6 +24,25 @@
 #include "lwip/dns.h"
 
 #include "spi_if.h"
+
+#define LOGO \
+"\
++--------------------------------------------------------------------------------------------------+\n\
+|                                                                                                  |\n\
+|                                                                                                  |\n\
+|      XX      X    XXXXXXXX     XXXXXXXXXX     XXXXXXX         XX        XXXXXXXXXX   XXXXXXXXX   |\n\
+|      XX     XX    X                X         X                X XX           X       X           |\n\
+|      X X    X     X                X        X                X   XX          X       X           |\n\
+|     XX XX   X     X                X       XX     XXXXXXX   XX    XX         X       X           |\n\
+|     X   X   X     XXXXXXXX         X       X         XX     XXXXXXXX         X       XXXXXXXXX   |\n\
+|     X    X XX     X                X       XX         X    XX      X         X       X           |\n\
+|     X    XXX      X                X        XXX      XX    X       XX        X       X           |\n\
+|    XX     XX      XXXXXXXX         X           X X XXX    XX        X        X       XXXXXXXXX   |\n\
+|                                                                                                  |\n\
+|                                                                                                  |\n\
++--------------------------------------------------------------------------------------------------+\n\
+"
+
 
 #ifdef CONFIG_ETHERNET
 #define NET_INTERFACE  TCPIP_ADAPTER_IF_ETH
@@ -359,7 +379,7 @@ static void tcp_client_task(void *pvParameter)
         ESP_LOGW(TAG, "reset tcp client and reconnect to tcp server...");
     } // end
 
-    printf("A stop nonblock...\n");
+    ESP_LOGI(TAG,"A stop nonblock...\n");
     vTaskDelete(NULL);
     return;
 }
@@ -418,6 +438,21 @@ void app_main()
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+	/* Print chip information */
+	esp_chip_info_t chip_info;
+    printf(LOGO);
+	esp_chip_info(&chip_info);
+	ESP_LOGI(TAG,"This is ESP32 chip with %d CPU cores, WiFi%s%s, ",
+			chip_info.cores,
+			(chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
+					(chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
+
+	ESP_LOGI(TAG,"silicon revision %d, ", chip_info.revision);
+
+	ESP_LOGI(TAG,"%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
+			(chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+
     tcpip_adapter_init();
     net_event_group = xEventGroupCreate();
 

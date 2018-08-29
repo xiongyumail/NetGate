@@ -47,7 +47,7 @@ config WIFI_PASSWORD
 config MAX_STA_CONN
     int "Max STA conn"
     default 4
-    depends on WIFI_STATION
+    depends on WIFI_SOFTAP
     help
 	Max number of the STA connects to AP.
 endmenu
